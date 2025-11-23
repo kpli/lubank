@@ -44,7 +44,7 @@ public class DList : DType
 
     public override int GetHashCode()
     {
-        throw new System.NotSupportedException();
+        return Datas.GetHashCode(); // TODO:CHECK
     }
 
     public override void Apply<T>(IDataActionVisitor<T> visitor, T x)

@@ -26,7 +26,7 @@ using Luban.Validator;
 
 namespace Luban.Defs;
 
-public record class IndexInfo(TType Type, DefField IndexField, int IndexFieldIdIndex);
+public record class IndexInfo(TType Type, DefField IndexField, int IndexFieldIdIndex, IndexInfo subInfo);
 
 public class DefTable : DefTypeBase
 {
@@ -132,7 +132,7 @@ public class DefTable : DefTypeBase
                 }
                 KeyTType = IndexField.CType;
                 Type = TMap.Create(false, null, KeyTType, ValueTType, false);
-                this.IndexList.Add(new IndexInfo(KeyTType, IndexField, IndexFieldIdIndex));
+                this.IndexList.Add(new IndexInfo(KeyTType, IndexField, IndexFieldIdIndex, null));
                 break;
             }
             case TableMode.LIST:
@@ -140,6 +140,30 @@ public class DefTable : DefTypeBase
                 var indexs = Index.Split('+', ',').Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList();
                 foreach (var idx in indexs)
                 {
+                    if(idx.Contains('.'))
+                    {
+                        var point = idx.IndexOf('.');
+                        var listT = idx[..point];
+                        var sub = idx[(point+1)..];
+                        if (ValueTType.DefBean.TryGetField(listT, out var f1, out var i1))
+                        {
+                            if(f1.CType.TypeName == "list")
+                            {
+                                var tbean = f1.CType.ElementType as TBean;
+                                if(tbean != null)
+                                {
+                                    if(tbean.DefBean.TryGetField(sub, out var fsub, out var isub))
+                                    {
+                                        var eleInfo = new IndexInfo(f1.CType.ElementType, null, 0, null);
+                                        var subInfo = new IndexInfo(fsub.CType, fsub, isub, eleInfo);
+                                        this.IndexList.Add(new IndexInfo(f1.CType, f1, i1, subInfo));
+                                        continue;
+                                    }   
+                                }
+                            }
+                        }
+                        throw new Exception($"table:'{FullName}' index:'{idx}' 字段不存在");
+                    }
                     if (ValueTType.DefBean.TryGetField(idx, out var f, out var i))
                     {
                         if (IndexField == null)
@@ -147,7 +171,7 @@ public class DefTable : DefTypeBase
                             IndexField = f;
                             IndexFieldIdIndex = i;
                         }
-                        this.IndexList.Add(new IndexInfo(f.CType, f, i));
+                        this.IndexList.Add(new IndexInfo(f.CType, f, i, null));
                     }
                     else
                     {
@@ -173,6 +197,13 @@ public class DefTable : DefTypeBase
             }
             if (!indexType.Apply(IsValidTableKeyTypeVisitor.Ins))
             {
+                if(indexType.TypeName == "list" && index.subInfo != null)
+                {
+                    if (!index.subInfo.Type.IsNullable && index.subInfo.Type.Apply(IsValidTableKeyTypeVisitor.Ins))
+                    {
+                        continue;
+                    }
+                }
                 throw new Exception($"table:'{FullName}' index:'{idxName}' 的类型:'{index.IndexField.Type}' 不能作为index");
             }
         }
